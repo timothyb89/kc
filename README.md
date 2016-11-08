@@ -27,3 +27,14 @@ env:
   NO_PROXY: kube1,kube2,kube3,kube4
   KUBECONFIG: /home/my_user/admin.conf
 ```
+
+Everything shown above is optional. If `KUBECONFIG` is set under `env`, it will
+override the default file (usually `~/.kube/config`). If `namespace` is set, it
+automatically appends `-n <namespace>`.
+
+Then, instead of running `kubectl`, run `kc`. The actual parameters you enter
+are passed to `kubectl`, but will be adjusted based on values in `.kc.yml`.
+
+Examples:
+ * `kubectl get pods -n my-namespace` becomes `kc get pods`
+ * `kubectl --kubeconfig /path/to/some/config.conf ...` becomes `kc ...`
