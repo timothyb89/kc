@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import logging
 import os
 import subprocess
@@ -99,6 +101,21 @@ def get_environment(config):
     return env
 
 
+def exec_kubectl(config, cmd):
+    cmd_path = config.get('kubectl_path', 'kubectl')
+    cmd.insert(0, cmd_path)
+
+    p = subprocess.Popen(cmd, env=get_environment(config))
+    ret = p.wait()
+
+    if ret != 0:
+        print('-----', file=sys.stderr)
+        print('kubectl returned an error (%d), command args were:' % ret, file=sys.stderr)
+        print(repr(cmd), file=sys.stderr)
+
+    return ret
+
+
 @verb('select',
       aliases=['sel', 's'],
       description='Find an exact resource name based on labels')
@@ -112,16 +129,27 @@ def handle_select(config, remaining_args):
                         help='One or more key=value selectors, space-separated')
     args = parser.parse_args(remaining_args)
 
-    cmd_path = config.get('kubectl_path', 'kubectl')
-    cmd = [cmd_path]
+    # if the user specifies an index, return only that
+    index = None
+    filtered_selectors = []
+    for selector in args.selectors:
+        try:
+            index = int(selector)
+        except ValueError:
+            filtered_selectors.append(selector)
+
+    cmd = []
     if 'namespace' in config:
         cmd.extend(['-n', config['namespace']])
 
-    cmd.extend(['get', args.resource, '-l', ','.join(args.selectors)])
-    cmd.append('-o=jsonpath={.items[*].metadata.name}')
+    cmd.extend(['get', args.resource, '-l', ','.join(filtered_selectors)])
 
-    p = subprocess.Popen(cmd, env=get_environment(config))
-    return p.wait()
+    if index is None:
+        cmd.append('-o=jsonpath={.items[*].metadata.name}')
+    else:
+        cmd.append('-o=jsonpath={.items[%d].metadata.name}' % index)
+
+    return exec_kubectl(config, cmd)
 
 
 @verb('nodeport', aliases=['np'], description='Resolve a service nodeport')
@@ -134,8 +162,7 @@ def handle_nodeport(config, remaining_args):
                         help='The port name or index (default: 0)')
     args = parser.parse_args(remaining_args)
 
-    cmd_path = config.get('kubectl_path', 'kubectl')
-    cmd = [cmd_path]
+    cmd = []
     if 'namespace' in config:
         cmd.extend(['-n', config['namespace']])
 
@@ -147,19 +174,18 @@ def handle_nodeport(config, remaining_args):
     except ValueError:
         cmd.append('-o=jsonpath={.spec.ports[?(@.name=="%s")].nodePort}' % args.port)
 
-    p = subprocess.Popen(cmd, env=get_environment(config))
-    return p.wait()
+    return exec_kubectl(config, cmd)
 
 
 #@verb('update', aliases=['up'], description='Updates a configmap in-place')
 def handle_update_configmap(config, remaining_args):
-    print 'TODO'
+    print('TODO')
     return True
 
 
 #@verb('bash', aliases=['sh'], description='Open an interactive terminal in a pod')
 def handle_bash(config, remaining_args):
-    print 'TODO'
+    print('TODO')
     return True
 
 
@@ -172,31 +198,28 @@ def handle_special(config, name, remaining_args):
 
 
 def handle_passthrough(config, user_args):
-    cmd_path = config.get('kubectl_path', 'kubectl')
-    args = [cmd_path]
-
+    args = []
     if 'namespace' in config:
         args.extend(['-n', config['namespace']])
 
     args.extend(user_args)
 
-    p = subprocess.Popen(args, env=get_environment(config))
-    return p.wait()
+    return exec_kubectl(config, args)
 
 
 def print_kc_help():
-    print '-----'
-    print 'kc wraps kubectl to provide extra functionality.'
-    print ''
+    print('-----')
+    print('kc wraps kubectl to provide extra functionality.')
+    print('')
 
-    print 'Additional Commands:'
+    print('Additional Commands:')
     for verb_def in verbs:
         if len(verb_def['aliases']) > 0:
             aka = ' (aka %s)' % ','.join(verb_def['aliases'])
         else:
             aka = ''
 
-        print '  %-15s%s%s' % (verb_def['name'], verb_def['description'] or '', aka)
+        print('  %-15s%s%s' % (verb_def['name'], verb_def['description'] or '', aka))
 
 
 def main():

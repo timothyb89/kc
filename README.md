@@ -88,6 +88,21 @@ few extra subcommands that make common operations a bit easier:
    Note that by default the resource is `pod` but that can be overridden with
    `-r <type>`. See also: `kc select --help`.
 
+   If the selector matches multiple results, by default they will be returned as
+   a space-separated list. If a single result is desired, the index can be
+   specified in any position:
+
+   ```
+   $ kc logs -f $(kc select app=grafana 0)
+   ```
+
+   Additionally, `kubectl` also supports set-based selectors. These are
+   supported, but must be quoted:
+
+   ```
+   $ kc select 'environment notin (production, qa)'
+   ```
+
  * `kc nodeport` (aka `kc np`): returns a plain integer port for a service
    NodePort, useful for finding where a randomly-allocated port can be accessed.
    Example:
