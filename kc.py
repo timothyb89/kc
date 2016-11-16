@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, REMAINDER
 from functools import wraps
 
 import yaml
@@ -103,8 +103,12 @@ def get_environment(config):
 
 def exec_kubectl(config, cmd):
     pre = [config.get('kubectl_path', 'kubectl')]
-    if 'namespace' in config:
+
+    namespace_exists = any([x.startswith('--namespace') for x in cmd])
+    if 'namespace' in config and '-n' not in cmd and not namespace_exists:
         pre.extend(['-n', config['namespace']])
+
+    logger.debug('Command: %r', pre + cmd)
 
     p = subprocess.Popen(pre + cmd, env=get_environment(config))
     ret = p.wait()
@@ -128,6 +132,8 @@ def handle_select(config, remaining_args):
                         help='The resource type (default: pod)')
     parser.add_argument('selectors', nargs='+',
                         help='One or more key=value selectors, space-separated')
+    parser.add_argument('remainder', nargs=REMAINDER,
+                        help='Other args to pass to kubectl')
     args = parser.parse_args(remaining_args)
 
     # if the user specifies an index, return only that
@@ -145,7 +151,7 @@ def handle_select(config, remaining_args):
     else:
         cmd.append('-o=jsonpath={.items[%d].metadata.name}' % index)
 
-    return exec_kubectl(config, cmd)
+    return exec_kubectl(config, cmd + args.remainder)
 
 
 @verb('nodeport', aliases=['np'], description='Resolve a service nodeport')
@@ -156,6 +162,8 @@ def handle_nodeport(config, remaining_args):
                         help='The name of the service to query.')
     parser.add_argument('port', nargs='?', default='0',
                         help='The port name or index (default: 0)')
+    parser.add_argument('remainder', nargs=REMAINDER,
+                        help='Other args to pass to kubectl')
     args = parser.parse_args(remaining_args)
 
     cmd = ['get', 'service', args.service_name]
@@ -165,7 +173,7 @@ def handle_nodeport(config, remaining_args):
     except ValueError:
         cmd.append('-o=jsonpath={.spec.ports[?(@.name=="%s")].nodePort}' % args.port)
 
-    return exec_kubectl(config, cmd)
+    return exec_kubectl(config, cmd + args.remainder)
 
 
 #@verb('update', aliases=['up'], description='Updates a configmap in-place')
