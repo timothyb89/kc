@@ -102,16 +102,17 @@ def get_environment(config):
 
 
 def exec_kubectl(config, cmd):
-    cmd_path = config.get('kubectl_path', 'kubectl')
-    cmd.insert(0, cmd_path)
+    pre = [config.get('kubectl_path', 'kubectl')]
+    if 'namespace' in config:
+        pre.extend(['-n', config['namespace']])
 
-    p = subprocess.Popen(cmd, env=get_environment(config))
+    p = subprocess.Popen(pre + cmd, env=get_environment(config))
     ret = p.wait()
 
     if ret != 0:
         print('-----', file=sys.stderr)
         print('kubectl returned an error (%d), command args were:' % ret, file=sys.stderr)
-        print(repr(cmd), file=sys.stderr)
+        print(repr(pre + cmd), file=sys.stderr)
 
     return ret
 
@@ -138,12 +139,7 @@ def handle_select(config, remaining_args):
         except ValueError:
             filtered_selectors.append(selector)
 
-    cmd = []
-    if 'namespace' in config:
-        cmd.extend(['-n', config['namespace']])
-
-    cmd.extend(['get', args.resource, '-l', ','.join(filtered_selectors)])
-
+    cmd = ['get', args.resource, '-l', ','.join(filtered_selectors)]
     if index is None:
         cmd.append('-o=jsonpath={.items[*].metadata.name}')
     else:
@@ -162,12 +158,7 @@ def handle_nodeport(config, remaining_args):
                         help='The port name or index (default: 0)')
     args = parser.parse_args(remaining_args)
 
-    cmd = []
-    if 'namespace' in config:
-        cmd.extend(['-n', config['namespace']])
-
-    cmd.extend(['get', 'service', args.service_name])
-
+    cmd = ['get', 'service', args.service_name]
     try:
         port = int(args.port)
         cmd.append('-o=jsonpath={.spec.ports[%d].nodePort}' % port)
@@ -195,16 +186,6 @@ def handle_special(config, name, remaining_args):
         return verb_defs[0]['function'](config, remaining_args)
     else:
         return None
-
-
-def handle_passthrough(config, user_args):
-    args = []
-    if 'namespace' in config:
-        args.extend(['-n', config['namespace']])
-
-    args.extend(user_args)
-
-    return exec_kubectl(config, args)
 
 
 def print_kc_help():
@@ -236,7 +217,7 @@ def main():
 
     special_ret = handle_special(config, user_args[0], user_args[1:])
     if special_ret is None:
-        sys.exit(handle_passthrough(config, user_args))
+        sys.exit(exec_kubectl(config, user_args))
     else:
         sys.exit(special_ret)
 
