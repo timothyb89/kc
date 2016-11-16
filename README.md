@@ -71,10 +71,13 @@ few extra subcommands that make common operations a bit easier:
 
  * `kc select` (aka `kc sel`, `kc s`): returns a space-separated list of full
    resource names given a set of labels. For example:
+   
        $ kc select app=grafana
        grafana-1548781338-gjlps
+
    This can be used to easily run commands on resources whose names may change,
    for example:
+   
        $ kc logs -f $(kc select app=grafana)
        $ kc exec -it $(kc select app=grafana) bash
 
@@ -84,6 +87,7 @@ few extra subcommands that make common operations a bit easier:
  * `kc nodeport` (aka `kc np`): returns a plain integer port for a service
    NodePort, useful for finding where a randomly-allocated port can be accessed.
    Example:
+   
        $ kc nodeport grafana
        31577
 
