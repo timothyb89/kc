@@ -223,15 +223,18 @@ def handle_nodeport(config, remaining_args):
 def browse(config, remaining_args):
     parser = ArgumentParser(prog='kc browse',
                             description='Opens the system browser to a service')
+    parser.add_argument('--namespace', '-n', help='Provide or override a namespace')
     parser.add_argument('--protocol', '-p', default='http',
                         help='The URL protocol to open')
     parser.add_argument('service_name',
                         help='The name of the service to query.')
     parser.add_argument('port', nargs='?', default='0',
                         help='The port name or index (default: 0)')
-    parser.add_argument('remainder', nargs=REMAINDER,
-                        help='Other args to pass to kubectl')
     args = parser.parse_args(remaining_args)
+
+    config = config.copy()
+    if args.namespace:
+        config['namespace'] = args.namespace
 
     cmd = ['get', 'service', args.service_name]
     try:
