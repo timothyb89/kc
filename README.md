@@ -116,5 +116,31 @@ few extra subcommands that make common operations a bit easier:
    by specifying an integer index (e.g. `kc nodeport grafana 1`) or a port name
    (e.g. `kc nodeport grafana http`).
 
+ * `kc browse` (aka `kc br`, `kc b`): opens a browser to view a named service.
+   Accepts the same options as `kc nodeport` w.r.t. selecting a particular
+   nodeport. Example:
+
+   ```
+   $ kc browse grafana
+   Created new window in existing browser session.
+   ```
+
+   The hostname opened is derived from the current `kubectl` cluster and
+   context, as per `kubectl config current-context` and `kubectl config view`.
+   This can be overridden by setting the `KUBECONFIG` variable in `.kc.yml` as
+   described above.
+
+   By default, the protocol opened is `http`. To override, pass `-p <scheme>`:
+
+   ```
+   $ kc browse -p https grafana
+   ```
+
+   The namespace can also be overridden with `-n`:
+
+   ```
+   $ kc browse -n kube-system monitoring-grafana
+   ```
+
 A full list of supported sub-commands is available when running `kc help` (it
 will be printed at the bottom of the existing `kubectl` help message).
