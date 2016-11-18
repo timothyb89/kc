@@ -6,7 +6,9 @@ friendlier.
 
  * Automatically set namespace, cluster configuration, and environment variables
    for a directory tree
- * TODO: shorten some common commands
+ * Add a number of convenient new verbs, such as:
+   * `select`: search for names by labels
+   * `browse`: open a browser to a NodePort
 
 Install
 -------
