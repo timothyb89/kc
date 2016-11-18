@@ -219,7 +219,7 @@ def handle_nodeport(config, remaining_args):
     return exec_kubectl(config, cmd + args.remainder)
 
 
-@verb('browse', aliases=['br', ''b'], description='Open the system browser to a service')
+@verb('browse', aliases=['br', 'b'], description='Open the system browser to a service')
 def browse(config, remaining_args):
     parser = ArgumentParser(prog='kc browse',
                             description='Opens the system browser to a service')
@@ -292,7 +292,7 @@ def main():
     user_args = sys.argv[1:]
 
     if not user_args or user_args[0] in ('help', '--help', '-h'):
-        handle_passthrough(config, user_args)
+        exec_kubectl(config, user_args)
         print_kc_help()
         sys.exit(0)
 
