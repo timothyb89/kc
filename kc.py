@@ -6,6 +6,8 @@ import logging
 import os
 import subprocess
 import sys
+import urlparse
+import webbrowser
 
 from argparse import ArgumentParser, REMAINDER
 from functools import wraps
@@ -17,6 +19,10 @@ logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 
 verbs = []
+
+
+class CaptureException(Exception):
+    pass
 
 
 def verb(name, aliases=None, description=None):
@@ -121,6 +127,43 @@ def exec_kubectl(config, cmd):
     return ret
 
 
+def capture_kubectl(config, cmd):
+    pre = [config.get('kubectl_path', 'kubectl')]
+
+    namespace_exists = any([x.startswith('--namespace') for x in cmd])
+    if 'namespace' in config and '-n' not in cmd and not namespace_exists:
+        pre.extend(['-n', config['namespace']])
+
+    logger.debug('Capturing command: %r', pre + cmd)
+
+    p = subprocess.Popen(pre + cmd,
+                         env=get_environment(config),
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    if p.returncode != 0:
+        raise CaptureException(p.returncode, out, err)
+
+    return out, err
+
+
+def get_current_master(config):
+    context, _ = capture_kubectl(config, ['config', 'current-context'])
+    cluster_name = context.strip().split('@')[1]
+    logger.debug('Found current cluster name: %s' % cluster_name)
+
+    path = '{.clusters[?(@.name=="%s")].cluster.server}' % cluster_name
+    server, _ = capture_kubectl(config, ['config', 'view', '-o=jsonpath=%s' % path])
+    server = server.strip()
+    if not server:
+        raise Exception('Could not determine kubernetes master host!')
+
+    logger.debug('Kubernetes master node is: %s' % server)
+    parsed = urlparse.urlparse(server)
+
+    return parsed.hostname
+
+
 @verb('select',
       aliases=['sel', 's'],
       description='Find an exact resource name based on labels')
@@ -154,7 +197,7 @@ def handle_select(config, remaining_args):
     return exec_kubectl(config, cmd + args.remainder)
 
 
-@verb('nodeport', aliases=['np'], description='Resolve a service nodeport')
+@verb('nodeport', aliases=['np', 'port'], description='Resolve a service nodeport')
 def handle_nodeport(config, remaining_args):
     parser = ArgumentParser(prog='kc nodeport',
                             description='Resolves a service nodeport')
@@ -174,6 +217,36 @@ def handle_nodeport(config, remaining_args):
         cmd.append('-o=jsonpath={.spec.ports[?(@.name=="%s")].nodePort}' % args.port)
 
     return exec_kubectl(config, cmd + args.remainder)
+
+
+@verb('browse', aliases=['br', ''b'], description='Open the system browser to a service')
+def browse(config, remaining_args):
+    parser = ArgumentParser(prog='kc browse',
+                            description='Opens the system browser to a service')
+    parser.add_argument('--protocol', '-p', default='http',
+                        help='The URL protocol to open')
+    parser.add_argument('service_name',
+                        help='The name of the service to query.')
+    parser.add_argument('port', nargs='?', default='0',
+                        help='The port name or index (default: 0)')
+    parser.add_argument('remainder', nargs=REMAINDER,
+                        help='Other args to pass to kubectl')
+    args = parser.parse_args(remaining_args)
+
+    cmd = ['get', 'service', args.service_name]
+    try:
+        port = int(args.port)
+        cmd.append('-o=jsonpath={.spec.ports[%d].nodePort}' % port)
+    except ValueError:
+        cmd.append('-o=jsonpath={.spec.ports[?(@.name=="%s")].nodePort}' % args.port)
+
+    host = get_current_master(config)
+    port, _ = capture_kubectl(config, cmd)
+    logger.debug('NodePort for service is: %s' % port)
+
+    webbrowser.open('%s://%s:%s/' % (args.protocol, host, port))
+
+    return True
 
 
 #@verb('update', aliases=['up'], description='Updates a configmap in-place')
