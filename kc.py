@@ -22,7 +22,19 @@ verbs = []
 
 
 class CaptureException(Exception):
-    pass
+    def __init__(self, retcode, stdout, stderr):
+        super(CaptureException, self).__init__(stderr)
+
+        self.retcode = retcode
+        self.stdout = stdout
+        self.stderr = stderr
+
+    def __str__(self):
+        return 'CaptureException(retcode=%s, stdout=%r, stderr=%r)' % (
+            self.retcode,
+            self.stdout,
+            self.stderr
+        )
 
 
 def verb(name, aliases=None, description=None):
@@ -164,6 +176,18 @@ def get_current_master(config):
     return parsed.hostname
 
 
+def select_resource(config, selectors, resource_type='pod', extra_args=None):
+    if extra_args is None:
+        extra_args = []
+
+    cmd = ['get', resource_type,
+           '-l', ','.join(selectors),
+           '-o=jsonpath={.items[*].metadata.name}']
+
+    ret, _ = capture_kubectl(config, cmd + extra_args)
+    return ret.strip().split()
+
+
 @verb('select',
       aliases=['sel', 's'],
       description='Find an exact resource name based on labels')
@@ -173,11 +197,14 @@ def handle_select(config, remaining_args):
                                         'name based on labels')
     parser.add_argument('--resource', '-r', default='pod',
                         help='The resource type (default: pod)')
+    parser.add_argument('--namespace', '-n', help='Provide or override a namespace')
     parser.add_argument('selectors', nargs='+',
                         help='One or more key=value selectors, space-separated')
-    parser.add_argument('remainder', nargs=REMAINDER,
-                        help='Other args to pass to kubectl')
     args = parser.parse_args(remaining_args)
+
+    config = config.copy()
+    if args.namespace:
+        config['namespace'] = args.namespace
 
     # if the user specifies an index, return only that
     index = None
@@ -188,13 +215,15 @@ def handle_select(config, remaining_args):
         except ValueError:
             filtered_selectors.append(selector)
 
-    cmd = ['get', args.resource, '-l', ','.join(filtered_selectors)]
+    matches = select_resource(config, filtered_selectors,
+                              args.resource, args.remainder)
     if index is None:
-        cmd.append('-o=jsonpath={.items[*].metadata.name}')
+        for match in matches:
+            print(match)
     else:
-        cmd.append('-o=jsonpath={.items[%d].metadata.name}' % index)
+        print(matches[index])
 
-    return exec_kubectl(config, cmd + args.remainder)
+    return True
 
 
 @verb('nodeport', aliases=['np', 'port'], description='Resolve a service nodeport')
@@ -216,7 +245,10 @@ def handle_nodeport(config, remaining_args):
     except ValueError:
         cmd.append('-o=jsonpath={.spec.ports[?(@.name=="%s")].nodePort}' % args.port)
 
-    return exec_kubectl(config, cmd + args.remainder)
+    ret, _ = capture_kubectl(config, cmd + args.remainder)
+    print(ret.strip())
+
+    return True
 
 
 @verb('browse', aliases=['br', 'b'], description='Open the system browser to a service')
@@ -252,16 +284,90 @@ def browse(config, remaining_args):
     return True
 
 
-#@verb('update', aliases=['up'], description='Updates a configmap in-place')
-def handle_update_configmap(config, remaining_args):
-    print('TODO')
-    return True
-
-
-#@verb('bash', aliases=['sh'], description='Open an interactive terminal in a pod')
+@verb('bash', description='Open a bash shell in a pod by selector')
 def handle_bash(config, remaining_args):
-    print('TODO')
-    return True
+    parser = ArgumentParser(prog='kc bash',
+                            description='Open a bash shell in a pod by selector')
+    parser.add_argument('--namespace', '-n',
+                        help='Provide or override a namespace')
+    parser.add_argument('--container', '-c', default=None,
+                        help='Execute in a particular container (if n>0 in pod)')
+    parser.add_argument('selectors', nargs='+',
+                        help='One or more key=value selectors (see `kc select`)')
+    args = parser.parse_args(remaining_args)
+
+    config = config.copy()
+    if args.namespace:
+        config['namespace'] = args.namespace
+
+    index = None
+    filtered_selectors = []
+    for selector in args.selectors:
+        try:
+            index = int(selector)
+        except ValueError:
+            filtered_selectors.append(selector)
+
+    matches = select_resource(config, filtered_selectors, 'pod')
+    if index is None:
+        if len(matches) > 1:
+            print('Selector matches multiple pods. Either refine it or '
+                  'provide an index.', file=sys.stderr)
+            return False
+
+        pod = matches[0]
+    else:
+        pod = matches[index]
+
+    cmd = ['exec', '-it', pod]
+    if args.container:
+        cmd.extend(['-c', args.container])
+    cmd.append('bash')
+
+    return exec_kubectl(config, cmd)
+
+
+@verb('sh', description='Open a \'sh\' shell in a pod by selector')
+def handle_sh(config, remaining_args):
+    parser = ArgumentParser(prog='kc bash',
+                            description='Open a \'sh\' shell in a pod by selector')
+    parser.add_argument('--namespace', '-n',
+                        help='Provide or override a namespace')
+    parser.add_argument('--container', '-c', default=None,
+                        help='Execute in a particular container (if n>0 in pod)')
+    parser.add_argument('selectors', nargs='+',
+                        help='One or more key=value selectors (see `kc select`)')
+    args = parser.parse_args(remaining_args)
+
+    config = config.copy()
+    if args.namespace:
+        config['namespace'] = args.namespace
+
+    index = None
+    filtered_selectors = []
+    for selector in args.selectors:
+        try:
+            index = int(selector)
+        except ValueError:
+            filtered_selectors.append(selector)
+
+    matches = select_resource(config, filtered_selectors, 'pod')
+    if index is None:
+        if len(matches) > 1:
+            print('Selector matches multiple pods. Either refine it or '
+                  'provide an index.', file=sys.stderr)
+            return False
+
+        pod = matches[0]
+    else:
+        pod = matches[index]
+
+    cmd = ['exec', '-it', pod]
+    if args.container:
+        cmd.extend(['-c', args.container])
+    cmd.append('sh')
+
+    return exec_kubectl(config, cmd)
 
 
 def handle_special(config, name, remaining_args):
@@ -299,11 +405,19 @@ def main():
         print_kc_help()
         sys.exit(0)
 
-    special_ret = handle_special(config, user_args[0], user_args[1:])
-    if special_ret is None:
-        sys.exit(exec_kubectl(config, user_args))
-    else:
-        sys.exit(special_ret)
+    try:
+        special_ret = handle_special(config, user_args[0], user_args[1:])
+        if special_ret is None:
+            sys.exit(exec_kubectl(config, user_args))
+        elif isinstance(special_ret, bool):
+            sys.exit(0 if special_ret is True else 1)
+        else:
+            sys.exit(special_ret)
+    except CaptureException as ex:
+        logger.debug('Error in command capture!', exc_info=ex)
+
+        print(ex.stderr, file=sys.stderr, end='')
+        sys.exit(ex.retcode)
 
 
 if __name__ == '__main__':
