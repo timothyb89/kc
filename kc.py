@@ -176,16 +176,41 @@ def get_current_master(config):
     return parsed.hostname
 
 
+def is_pod_name(config, arg):
+    try:
+        capture_kubectl(config, ['get', 'pod', arg])
+        return True
+    except CaptureException:
+        return False
+
+
 def select_resource(config, selectors, resource_type='pod', extra_args=None):
     if extra_args is None:
         extra_args = []
 
+    if len(selectors) == 1 and is_pod_name(config, selectors[0]):
+        return [selectors[0]]
+
+    # if the user specifies an index, return only that
+    index = None
+    filtered_selectors = []
+    for selector in selectors:
+        try:
+            index = int(selector)
+        except ValueError:
+            filtered_selectors.append(selector)
+
     cmd = ['get', resource_type,
-           '-l', ','.join(selectors),
+           '-l', ','.join(filtered_selectors),
            '-o=jsonpath={.items[*].metadata.name}']
 
     ret, _ = capture_kubectl(config, cmd + extra_args)
-    return ret.strip().split()
+    results = ret.strip().split()
+
+    if index is None:
+        return results
+    else:
+        return [results[index]]
 
 
 @verb('select',
@@ -206,22 +231,8 @@ def handle_select(config, remaining_args):
     if args.namespace:
         config['namespace'] = args.namespace
 
-    # if the user specifies an index, return only that
-    index = None
-    filtered_selectors = []
-    for selector in args.selectors:
-        try:
-            index = int(selector)
-        except ValueError:
-            filtered_selectors.append(selector)
-
-    matches = select_resource(config, filtered_selectors,
-                              args.resource, args.remainder)
-    if index is None:
-        for match in matches:
-            print(match)
-    else:
-        print(matches[index])
+    for match in select_resource(config, args.selectors, args.resource):
+        print(match)
 
     return True
 
@@ -300,26 +311,18 @@ def handle_bash(config, remaining_args):
     if args.namespace:
         config['namespace'] = args.namespace
 
-    index = None
-    filtered_selectors = []
-    for selector in args.selectors:
-        try:
-            index = int(selector)
-        except ValueError:
-            filtered_selectors.append(selector)
+    matches = select_resource(config, args.selectors, 'pod')
+    if not matches:
+        print('No matches found for selector.')
+        return False
+    if len(matches) > 1:
+        print('Selector matches multiple pods. Either refine it or '
+              'provide an index.', file=sys.stderr)
+        for i, match in enumerate(matches):
+            print(' %3d %s' % (i, match), file=sys.stderr)
+        return False
 
-    matches = select_resource(config, filtered_selectors, 'pod')
-    if index is None:
-        if len(matches) > 1:
-            print('Selector matches multiple pods. Either refine it or '
-                  'provide an index.', file=sys.stderr)
-            return False
-
-        pod = matches[0]
-    else:
-        pod = matches[index]
-
-    cmd = ['exec', '-it', pod]
+    cmd = ['exec', '-it', matches[0]]
     if args.container:
         cmd.extend(['-c', args.container])
     cmd.append('bash')
@@ -343,26 +346,18 @@ def handle_sh(config, remaining_args):
     if args.namespace:
         config['namespace'] = args.namespace
 
-    index = None
-    filtered_selectors = []
-    for selector in args.selectors:
-        try:
-            index = int(selector)
-        except ValueError:
-            filtered_selectors.append(selector)
+    matches = select_resource(config, args.selectors, 'pod')
+    if not matches:
+        print('No matches found for selector.')
+        return False
+    if len(matches) > 1:
+        print('Selector matches multiple pods. Either refine it or '
+              'provide an index.', file=sys.stderr)
+        for i, match in enumerate(matches):
+            print(' %3d %s' % (i, match), file=sys.stderr)
+        return False
 
-    matches = select_resource(config, filtered_selectors, 'pod')
-    if index is None:
-        if len(matches) > 1:
-            print('Selector matches multiple pods. Either refine it or '
-                  'provide an index.', file=sys.stderr)
-            return False
-
-        pod = matches[0]
-    else:
-        pod = matches[index]
-
-    cmd = ['exec', '-it', pod]
+    cmd = ['exec', '-it', matches[0]]
     if args.container:
         cmd.extend(['-c', args.container])
     cmd.append('sh')
