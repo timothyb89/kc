@@ -105,6 +105,11 @@ few extra subcommands that make common operations a bit easier:
    $ kc select 'environment notin (production, qa)'
    ```
 
+   Pod names can also be specified exactly. If one argument is provided and it
+   literally matches a pod, the input will be returned as-is. This isn't
+   particularly useful for `kc select`, but can be convenient for other commands
+   inheriting its functionality, like `kc bash`.
+
  * `kc nodeport` (aka `kc np`): returns a plain integer port for a service
    NodePort, useful for finding where a randomly-allocated port can be accessed.
    Example:
@@ -142,6 +147,16 @@ few extra subcommands that make common operations a bit easier:
 
    ```
    $ kc browse -n kube-system monitoring-grafana
+   ```
+
+ * `kc sh` / `kc bash`: Open an interactive terminal in the pod given by the
+   selector. Selector semantics are the same as `kc select`.
+
+   If there are multiple containers in the selected pods, one should be selected
+   with `-c <name>`, e.g.:
+
+   ```
+   $ kc bash app=grafana -c grafana
    ```
 
 A full list of supported sub-commands is available when running `kc help` (it
